@@ -140,6 +140,40 @@ wss.on("connection", (ws, request) => {
             });
         }
 
+        if (message.type === "fold-cards") {
+            const { cards, currentTurn, targetUserId } = message;
+
+            const participant = participants[roomId].find(
+                (p) => p.userId === targetUserId
+            );
+
+            if (participant) {
+                const currentIndex = participants[roomId].findIndex(
+                    (p) => p.userId === currentTurn
+                );
+
+                let nextIndex =
+                    (currentIndex + 1) % participants[roomId].length;
+                while (participants[roomId][nextIndex].isDead) {
+                    nextIndex = (nextIndex + 1) % participants[roomId].length;
+                }
+
+                const nextTurn = participants[roomId][nextIndex].userId;
+
+                // Обновляем очередь и уведомляем всех игроков
+                rooms[roomId].forEach((client) => {
+                    if (client.readyState === ws.OPEN) {
+                        client.send(
+                            JSON.stringify({
+                                type: "update-turn",
+                                currentTurn: nextTurn,
+                            })
+                        );
+                    }
+                });
+            }
+        }
+
         if (message.type === "shot") {
             const { targetUserId, isDead, currentTurn } = message;
 

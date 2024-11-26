@@ -11,6 +11,7 @@ import {
     kill,
     shot,
     updateCurrentTurn,
+    foldCards,
 } from "../../store/store";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -39,6 +40,7 @@ const GameRoom: React.FC = () => {
         }>
     >([]);
     const currentTurnRef = useRef<string>("");
+    const [selectedCards, setSelectedCards] = useState<string[]>([]);
 
     const {
         nickname,
@@ -65,7 +67,7 @@ const GameRoom: React.FC = () => {
     useEffect(() => {
         if (!nickname || !roomId) return;
 
-        const socket = new WebSocket(`ws://79.137.192.200:3001/${roomId}`);
+        const socket = new WebSocket(`ws://localhost:3001/${roomId}`);
         socketRef.current = socket;
 
         socket.onopen = () => {
@@ -179,6 +181,32 @@ const GameRoom: React.FC = () => {
         }
     };
 
+    const handleCardClick = (cardId: string) => {
+        if (!isStarted || isDead || currentTurn !== userId) return;
+        setSelectedCards((prev) => {
+            if (prev.includes(cardId)) {
+                return prev.filter((id) => id !== cardId); // Удалить карту
+            }
+            if (prev.length < 3) {
+                return [...prev, cardId]; // Добавить карту, если их меньше 3
+            }
+            return prev; // Если уже выбрано 3, ничего не меняем
+        });
+    };
+
+    const handleFoldCards = () => {
+        socketRef.current?.send(
+            JSON.stringify({
+                type: "fold-cards",
+                cards: selectedCards,
+                currentTurn: currentTurnRef.current,
+                targetUserId: userId,
+            })
+        );
+        dispatch(foldCards(selectedCards));
+        setSelectedCards([]);
+    };
+
     if (nickname === "") {
         return (
             <Container
@@ -274,11 +302,47 @@ const GameRoom: React.FC = () => {
                     <Typography variant="h5">Your Cards</Typography>
                     <List sx={{ display: "flex" }}>
                         {cards.map((card) => (
-                            <ListItem key={card.id}>
+                            <ListItem
+                                key={card.id}
+                                onClick={() => handleCardClick(card.id)}
+                                sx={{
+                                    cursor:
+                                        currentTurn === userId
+                                            ? "pointer"
+                                            : "not-allowed",
+                                    color: selectedCards.includes(card.id)
+                                        ? "green"
+                                        : "inherit",
+                                }}
+                            >
                                 <ListItemText primary={card.type} />
                             </ListItem>
                         ))}
                     </List>
+                </div>
+            )}
+            {!isDead && currentTurn === userId && isStarted && (
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        gap: "10px",
+                    }}
+                >
+                    <Button
+                        variant="outlined"
+                        color="error"
+                    >
+                        Пиздабол
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        color="primary"
+                        disabled={selectedCards.length === 0}
+                        onClick={handleFoldCards}
+                    >
+                        Ход
+                    </Button>
                 </div>
             )}
         </Container>

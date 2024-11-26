@@ -4,7 +4,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 // API-сервис для взаимодействия с сервером
 export const api = createApi({
     reducerPath: "api",
-    baseQuery: fetchBaseQuery({ baseUrl: "http://79.137.192.200:3001" }),
+    baseQuery: fetchBaseQuery({ baseUrl: "http://localhost:3001" }),
     endpoints: (builder) => ({
         createRoom: builder.mutation<{ roomId: string }, void>({
             query: () => ({
@@ -87,6 +87,11 @@ const gameSlice = createSlice({
         ) => {
             state.cards = action.payload;
         },
+        foldCards: (state, action: PayloadAction<string[]>) => {
+            state.cards = state.cards.filter(
+                (card) => !action.payload.includes(card.id)
+            );
+        },
         updateParticipants: (
             state,
             action: PayloadAction<
@@ -121,6 +126,7 @@ export const {
     joinRoom,
     leaveRoom,
     updateCards,
+    foldCards,
     updateParticipants,
     updateCurrentTurn,
     startGame,
