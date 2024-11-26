@@ -4,7 +4,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 // API-сервис для взаимодействия с сервером
 export const api = createApi({
     reducerPath: "api",
-    baseQuery: fetchBaseQuery({ baseUrl: "http://localhost:3001" }),
+    baseQuery: fetchBaseQuery({ baseUrl: "http://79.137.192.200:3001" }),
     endpoints: (builder) => ({
         createRoom: builder.mutation<{ roomId: string }, void>({
             query: () => ({

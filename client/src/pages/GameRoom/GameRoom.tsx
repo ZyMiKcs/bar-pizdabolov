@@ -65,7 +65,7 @@ const GameRoom: React.FC = () => {
     useEffect(() => {
         if (!nickname || !roomId) return;
 
-        const socket = new WebSocket(`ws://localhost:3001/${roomId}`);
+        const socket = new WebSocket(`ws://79.137.192.200:3001/${roomId}`);
         socketRef.current = socket;
 
         socket.onopen = () => {

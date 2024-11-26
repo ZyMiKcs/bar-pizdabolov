@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { WebSocket } from "ws";
 import { v4 as uuidv4 } from "uuid";
+import path from "path";
 
 const app = express();
 const PORT = 3001;
@@ -9,6 +10,8 @@ const PORT = 3001;
 // Подключаем CORS
 app.use(cors());
 app.use(express.json());
+
+app.use(express.static(path.join(__dirname, "..", "..", "client", "dist")));
 
 // Хранилище комнат и их участников
 const rooms: { [key: string]: WebSocket[] } = {};
@@ -233,6 +236,12 @@ wss.on("connection", (ws, request) => {
             }
         });
     });
+});
+
+app.get("*", (req, res) => {
+    res.sendFile(
+        path.join(__dirname, "..", "..", "client", "dist", "index.html")
+    );
 });
 
 const server = app.listen(PORT, () => {
