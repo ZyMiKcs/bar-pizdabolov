@@ -4,7 +4,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 // API-сервис для взаимодействия с сервером
 export const api = createApi({
     reducerPath: "api",
-    baseQuery: fetchBaseQuery({ baseUrl: "http://85.192.56.103:3001" }),
+    baseQuery: fetchBaseQuery({ baseUrl: "http://localhost:3001" }),
     endpoints: (builder) => ({
         createRoom: builder.mutation<{ roomId: string }, void>({
             query: () => ({
@@ -82,6 +82,10 @@ const gameSlice = createSlice({
             state.userId = "";
             state.participants = [];
             state.cards = [];
+            state.currentTurn = "";
+            state.prevTurn = "";
+            state.cardType = "";
+            state.cardsOnTable = 0;
         },
         updateCards: (
             state,

@@ -123,7 +123,10 @@ wss.on("connection", (ws, request) => {
 
             gameStates[roomId] = {
                 currentType: targetType,
-                currentTurn: participants[roomId][0].userId,
+                currentTurn:
+                    participants[roomId][
+                        Math.floor(Math.random() * participants[roomId].length)
+                    ].userId,
                 prevTurn: participants[roomId][0].userId,
                 tableCards: [],
             };

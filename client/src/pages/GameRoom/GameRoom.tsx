@@ -94,7 +94,7 @@ const GameRoom: React.FC = () => {
     useEffect(() => {
         if (!nickname || !roomId) return;
 
-        const socket = new WebSocket(`ws://85.192.56.103:3001/${roomId}`);
+        const socket = new WebSocket(`ws://localhost:3001/${roomId}`);
         socketRef.current = socket;
 
         socket.onopen = () => {
@@ -390,3 +390,4 @@ const GameRoom: React.FC = () => {
 };
 
 export default GameRoom;
+``;
