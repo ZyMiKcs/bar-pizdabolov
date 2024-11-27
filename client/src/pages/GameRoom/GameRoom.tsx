@@ -8,10 +8,11 @@ import {
     updateCards,
     updateParticipants,
     startGame,
-    kill,
-    shot,
     updateCurrentTurn,
     foldCards,
+    setCardType,
+    setCardsOnTable,
+    resetIsNoCards,
 } from "../../store/store";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -37,9 +38,11 @@ const GameRoom: React.FC = () => {
             shots: number;
             userId: string;
             isDead: boolean;
+            isNoCards: boolean;
         }>
     >([]);
     const currentTurnRef = useRef<string>("");
+    const cardsRef = useRef<{ id: string; type: string }[]>([]);
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
 
     const {
@@ -48,15 +51,39 @@ const GameRoom: React.FC = () => {
         isStarted,
         userId,
         cards,
-        isDead,
+        cardType,
         currentTurn,
+        prevTurn,
+        cardsOnTable,
     } = useSelector((state: RootState) => state.game);
 
     userIdRef.current = userId;
     participantsRef.current = participants;
     currentTurnRef.current = currentTurn;
+    cardsRef.current = cards;
 
     const socketRef = useRef<WebSocket | null>(null);
+
+    const isDead =
+        participants.find((participant) => participant.userId === userId)
+            ?.isDead || false;
+
+    const currentTurnName =
+        participants.find((participant) => participant.userId === currentTurn)
+            ?.nickname || "";
+
+    const prevTurnName =
+        participants.find((participant) => participant.userId === prevTurn)
+            ?.nickname || "";
+
+    const isNoCards =
+        participants.find((participant) => participant.userId === userId)
+            ?.isNoCards || false;
+
+    const isOneAlive =
+        participants.filter(
+            (participant) => !participant.isDead && !participant.isNoCards
+        ).length === 1;
 
     useEffect(() => {
         if (!roomId) {
@@ -67,7 +94,7 @@ const GameRoom: React.FC = () => {
     useEffect(() => {
         if (!nickname || !roomId) return;
 
-        const socket = new WebSocket(`ws://localhost:3001/${roomId}`);
+        const socket = new WebSocket(`ws://85.192.56.103:3001/${roomId}`);
         socketRef.current = socket;
 
         socket.onopen = () => {
@@ -106,9 +133,18 @@ const GameRoom: React.FC = () => {
                 dispatch(updateParticipants(data.participants || []));
             }
 
+            if (data.type === "update-table-cards")
+                dispatch(setCardsOnTable(data.cardsCount));
+
             if (data.type === "game-started") {
                 dispatch(updateCards(data.cards[userIdRef.current]));
-                dispatch(updateCurrentTurn(data.currentTurn));
+                dispatch(
+                    updateCurrentTurn({
+                        currentTurn: data.currentTurn,
+                        prevTurn: data.prevTurn,
+                    })
+                );
+                dispatch(setCardType(data.targetType.toUpperCase()));
                 dispatch(startGame());
             }
 
@@ -121,6 +157,7 @@ const GameRoom: React.FC = () => {
                                       ...participant,
                                       isDead: data.isDead,
                                       shots: data.shots,
+                                      isNoCards: data.isNoCards,
                                   }
                                 : participant
                         )
@@ -128,7 +165,19 @@ const GameRoom: React.FC = () => {
                 );
             }
             if (data.type === "update-turn") {
-                dispatch(updateCurrentTurn(data.currentTurn));
+                dispatch(
+                    updateCurrentTurn({
+                        currentTurn: data.currentTurn,
+                        prevTurn: data.prevTurn,
+                    })
+                );
+            }
+
+            if (data.type === "start-round") {
+                dispatch(updateCards(data.cards[userIdRef.current]));
+                dispatch(setCardType(data.targetType.toUpperCase()));
+                dispatch(resetIsNoCards());
+                dispatch(setCardsOnTable(0));
             }
 
             if (data.type === "game-over") {
@@ -156,31 +205,6 @@ const GameRoom: React.FC = () => {
         );
     };
 
-    const handleShot = (targetUserId: string) => {
-        const participant = participants.find((p) => p.userId === targetUserId);
-        if (!participant || participant.isDead) return;
-
-        const chanceToDie = 100 / (6 - participant.shots); // Рассчитываем вероятность
-        const isDead = Math.random() * 100 < chanceToDie;
-
-        // Отправляем состояние на сервер
-        socketRef.current?.send(
-            JSON.stringify({
-                type: "shot",
-                targetUserId,
-                isDead,
-                currentTurn: currentTurnRef.current,
-            })
-        );
-
-        // Обновляем локальное состояние (предполагаем успех)
-        if (isDead) {
-            dispatch(kill());
-        } else {
-            dispatch(shot());
-        }
-    };
-
     const handleCardClick = (cardId: string) => {
         if (!isStarted || isDead || currentTurn !== userId) return;
         setSelectedCards((prev) => {
@@ -198,12 +222,25 @@ const GameRoom: React.FC = () => {
         socketRef.current?.send(
             JSON.stringify({
                 type: "fold-cards",
-                cards: selectedCards,
+                cards: selectedCards.map((cardId) => {
+                    const cardType = cardId.split("-")[0];
+                    return cardType;
+                }),
                 currentTurn: currentTurnRef.current,
-                targetUserId: userId,
+                isNoCards: cardsRef.current.length - selectedCards.length === 0,
             })
         );
         dispatch(foldCards(selectedCards));
+        setSelectedCards([]);
+    };
+
+    const handleBluff = () => {
+        socketRef.current?.send(
+            JSON.stringify({
+                type: "call-bluff",
+                currentTurn: currentTurnRef.current,
+            })
+        );
         setSelectedCards([]);
     };
 
@@ -250,6 +287,21 @@ const GameRoom: React.FC = () => {
             sx={{ mt: 4 }}
         >
             <Typography variant="h4">Room ID: {roomId}</Typography>
+            {currentTurn && isStarted && (
+                <Typography>Сейчас ходит: {currentTurnName}</Typography>
+            )}
+            {cardsOnTable > 0 && (
+                <Typography>
+                    {prevTurnName} скинул {cardsOnTable}{" "}
+                    {cardsOnTable > 1 ? cardType + "S" : cardType}
+                </Typography>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <Typography variant="h5">Players:</Typography>
+                {isStarted && cardType && (
+                    <Typography variant="h5">Card type: {cardType}</Typography>
+                )}
+            </div>
 
             <List>
                 {participants.map((participant) => (
@@ -269,20 +321,6 @@ const GameRoom: React.FC = () => {
                                     : `Shots: ${participant.shots} / 6`
                             }
                         />
-                        {!participant.isDead &&
-                            participant.userId === userId &&
-                            userId === currentTurn && ( // Кнопка активна только для текущего игрока
-                                <Button
-                                    variant="contained"
-                                    color="secondary"
-                                    onClick={() =>
-                                        handleShot(participant.userId)
-                                    }
-                                    disabled={participant.shots >= 6}
-                                >
-                                    Shot
-                                </Button>
-                            )}
                     </ListItem>
                 ))}
             </List>
@@ -297,7 +335,7 @@ const GameRoom: React.FC = () => {
                 </Button>
             )}
 
-            {isStarted && !isDead && (
+            {isStarted && !isDead && !isNoCards && (
                 <div>
                     <Typography variant="h5">Your Cards</Typography>
                     <List sx={{ display: "flex" }}>
@@ -332,13 +370,15 @@ const GameRoom: React.FC = () => {
                     <Button
                         variant="outlined"
                         color="error"
+                        disabled={prevTurn === currentTurn}
+                        onClick={handleBluff}
                     >
                         Пиздабол
                     </Button>
                     <Button
                         variant="outlined"
                         color="primary"
-                        disabled={selectedCards.length === 0}
+                        disabled={selectedCards.length === 0 || isOneAlive}
                         onClick={handleFoldCards}
                     >
                         Ход

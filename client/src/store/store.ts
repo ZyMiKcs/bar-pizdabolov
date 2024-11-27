@@ -4,7 +4,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 // API-сервис для взаимодействия с сервером
 export const api = createApi({
     reducerPath: "api",
-    baseQuery: fetchBaseQuery({ baseUrl: "http://localhost:3001" }),
+    baseQuery: fetchBaseQuery({ baseUrl: "http://85.192.56.103:3001" }),
     endpoints: (builder) => ({
         createRoom: builder.mutation<{ roomId: string }, void>({
             query: () => ({
@@ -20,28 +20,31 @@ interface InitialState {
     isStarted: boolean;
     nickname: string;
     userId: string;
-    isDead: boolean;
-    shots: number;
+    cardType: string;
+    cardsOnTable: number;
     participants: {
         nickname: string;
         shots: number;
         userId: string;
         isDead: boolean;
+        isNoCards: boolean;
     }[];
     cards: { id: string; type: string }[];
     currentTurn: string;
+    prevTurn: string;
 }
 
 const initialState: InitialState = {
     roomId: "",
     isStarted: false,
+    cardType: "",
+    cardsOnTable: 0,
     nickname: "",
-    isDead: false,
-    shots: 0,
     userId: "",
     participants: [],
     cards: [],
     currentTurn: "",
+    prevTurn: "",
 };
 
 // Слайс для управления сообщениями в реальном времени
@@ -63,6 +66,7 @@ const gameSlice = createSlice({
                     shots: number;
                     userId: string;
                     isDead: boolean;
+                    isNoCards: boolean;
                 }[];
             }>
         ) => {
@@ -70,8 +74,6 @@ const gameSlice = createSlice({
             state.isStarted = action.payload.isStarted;
             state.userId = action.payload.userId;
             state.participants = action.payload.participants;
-            state.isDead = false;
-            state.shots = 0;
         },
         leaveRoom: (state) => {
             state.roomId = "";
@@ -100,22 +102,33 @@ const gameSlice = createSlice({
                     shots: number;
                     userId: string;
                     isDead: boolean;
+                    isNoCards: boolean;
                 }>
             >
         ) => {
             state.participants = action.payload;
         },
-        updateCurrentTurn: (state, action: PayloadAction<string>) => {
-            state.currentTurn = action.payload;
+        updateCurrentTurn: (
+            state,
+            action: PayloadAction<{ prevTurn: string; currentTurn: string }>
+        ) => {
+            state.currentTurn = action.payload.currentTurn;
+            state.prevTurn = action.payload.prevTurn;
+        },
+        setCardType: (state, action: PayloadAction<string>) => {
+            state.cardType = action.payload;
         },
         startGame: (state) => {
             state.isStarted = true;
         },
-        kill: (state) => {
-            state.isDead = true;
+        setCardsOnTable: (state, action: PayloadAction<number>) => {
+            state.cardsOnTable = action.payload;
         },
-        shot: (state) => {
-            state.shots += 1;
+        resetIsNoCards: (state) => {
+            state.participants = state.participants.map((participant) => ({
+                ...participant,
+                isNoCards: false,
+            }));
         },
     },
 });
@@ -130,8 +143,9 @@ export const {
     updateParticipants,
     updateCurrentTurn,
     startGame,
-    kill,
-    shot,
+    setCardType,
+    setCardsOnTable,
+    resetIsNoCards,
 } = gameSlice.actions;
 export const store = configureStore({
     reducer: {

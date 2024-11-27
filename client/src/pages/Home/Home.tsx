@@ -34,7 +34,7 @@ const Home: React.FC = () => {
                     align="center"
                     gutterBottom
                 >
-                    Welcome to the Chat App
+                    Welcome to the BAR PIZDABOLOV
                 </Typography>
                 <Box sx={{ mb: 2 }}>
                     <Typography variant="body1">

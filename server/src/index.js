@@ -17,6 +17,8 @@ app.use(express_1.default.static(path_1.default.join(__dirname, "..", "..", "cli
 // Хранилище комнат и их участников
 const rooms = {};
 const participants = {};
+// Дополняем структуру участников и комнат
+const gameStates = {};
 // Создать комнату
 app.post("/create-room", (req, res) => {
     const roomId = (0, uuid_1.v4)();
@@ -24,6 +26,21 @@ app.post("/create-room", (req, res) => {
     participants[roomId] = [];
     res.json({ roomId });
 });
+const handlePickCardType = () => {
+    const targetTypes = ["queen", "king", "ace"];
+    const targetType = targetTypes[Math.floor(Math.random() * targetTypes.length)];
+    return targetType;
+};
+const shuffleDeck = () => {
+    const deck = [
+        ...Array(6).fill("queen"),
+        ...Array(6).fill("king"),
+        ...Array(6).fill("ace"),
+        ...Array(2).fill("joker"),
+    ].map((type, index) => ({ id: `${type}-${index + 1}`, type }));
+    const shuffledDeck = deck.sort(() => Math.random() - 0.5);
+    return shuffledDeck;
+};
 // WebSocket-сервер для работы с комнатами
 const wss = new ws_1.WebSocket.Server({ noServer: true });
 wss.on("connection", (ws, request) => {
@@ -54,6 +71,7 @@ wss.on("connection", (ws, request) => {
                 nickname: message.nickname,
                 shots: 0,
                 isDead: false,
+                isNoCards: false,
             });
             // Уведомляем всех участников комнаты о новом участнике
             rooms[roomId].forEach((client) => {
@@ -66,15 +84,15 @@ wss.on("connection", (ws, request) => {
             });
         }
         if (message.type === "start-game") {
-            // Создаем колоду карт с уникальными ID
-            const deck = [
-                ...Array(6).fill("queen"),
-                ...Array(6).fill("king"),
-                ...Array(6).fill("ace"),
-                ...Array(2).fill("joker"),
-            ].map((type, index) => ({ id: `${type}-${index + 1}`, type }));
+            const targetType = handlePickCardType();
+            gameStates[roomId] = {
+                currentType: targetType,
+                currentTurn: participants[roomId][0].userId,
+                prevTurn: participants[roomId][0].userId,
+                tableCards: [],
+            };
             // Перемешиваем колоду
-            const shuffledDeck = deck.sort(() => Math.random() - 0.5);
+            const shuffledDeck = shuffleDeck();
             const totalPlayers = participants[roomId].length;
             const cardsPerPlayer = 5;
             if (totalPlayers * cardsPerPlayer > shuffledDeck.length) {
@@ -100,44 +118,41 @@ wss.on("connection", (ws, request) => {
                         type: "game-started",
                         cards: assigned,
                         currentTurn: participants[roomId][0].userId,
+                        prevTurn: participants[roomId][0].userId,
+                        targetType,
                     }));
                 }
             });
         }
-        if (message.type === "fold-cards") {
-            const { cards, currentTurn, targetUserId } = message;
+        if (message.type === "call-bluff") {
+            const { currentTurn } = message;
+            const lastTableCards = gameStates[roomId].tableCards;
+            const prevTurn = gameStates[roomId].prevTurn;
+            const targetType = gameStates[roomId].currentType;
+            const shuffledDeck = shuffleDeck();
+            const cardsPerPlayer = 5;
+            const assigned = participants[roomId].reduce((acc, participant, index) => {
+                acc[participant.userId] = shuffledDeck.slice(index * cardsPerPlayer, index * cardsPerPlayer + cardsPerPlayer);
+                return acc;
+            }, {});
+            // Проверяем карты
+            const isBluff = lastTableCards.some((card) => card !== targetType && card !== "joker");
+            const newCardType = handlePickCardType();
+            gameStates[roomId] = Object.assign(Object.assign({}, gameStates[roomId]), { currentType: newCardType });
+            // Выбираем жертву
+            const targetUserId = isBluff ? prevTurn : currentTurn;
             const participant = participants[roomId].find((p) => p.userId === targetUserId);
             if (participant) {
-                const currentIndex = participants[roomId].findIndex((p) => p.userId === currentTurn);
-                let nextIndex = (currentIndex + 1) % participants[roomId].length;
-                while (participants[roomId][nextIndex].isDead) {
-                    nextIndex = (nextIndex + 1) % participants[roomId].length;
-                }
-                const nextTurn = participants[roomId][nextIndex].userId;
-                // Обновляем очередь и уведомляем всех игроков
-                rooms[roomId].forEach((client) => {
-                    if (client.readyState === ws.OPEN) {
-                        client.send(JSON.stringify({
-                            type: "update-turn",
-                            currentTurn: nextTurn,
-                        }));
-                    }
-                });
-            }
-        }
-        if (message.type === "shot") {
-            const { targetUserId, isDead, currentTurn } = message;
-            // Находим участника
-            const participant = participants[roomId].find((p) => p.userId === targetUserId);
-            if (participant) {
-                if (isDead) {
+                if (Math.random() < 1 / (6 - participant.shots)) {
                     participant.isDead = true;
                 }
                 else {
                     participant.shots += 1;
                 }
-                const alivePlayers = participants[roomId].filter((p) => !p.isDead);
+                // Проверяем оставшихся игроков
+                const alivePlayers = participants[roomId].filter((p) => !p.isDead && !p.isNoCards);
                 if (alivePlayers.length === 1) {
+                    // Игра завершена
                     rooms[roomId].forEach((client) => {
                         if (client.readyState === ws.OPEN) {
                             client.send(JSON.stringify({
@@ -148,30 +163,71 @@ wss.on("connection", (ws, request) => {
                     });
                     return;
                 }
-                // Уведомляем всех игроков о новом состоянии
+                participants[roomId] = participants[roomId].map((participant) => (Object.assign(Object.assign({}, participant), { isNoCards: false })));
+                // Уведомляем игроков о состоянии
                 rooms[roomId].forEach((client) => {
                     if (client.readyState === ws.OPEN) {
                         client.send(JSON.stringify({
                             type: "update-participant",
                             userId: targetUserId,
-                            isDead,
+                            isDead: participant.isDead,
                             shots: participant.shots,
+                        }));
+                        client.send(JSON.stringify({
+                            type: "start-round",
+                            cards: assigned,
+                            targetType: newCardType,
                         }));
                     }
                 });
-                // Определяем следующего игрока
-                const currentIndex = participants[roomId].findIndex((p) => p.userId === currentTurn);
-                let nextIndex = (currentIndex + 1) % participants[roomId].length;
-                while (participants[roomId][nextIndex].isDead) {
-                    nextIndex = (nextIndex + 1) % participants[roomId].length;
-                }
-                const nextTurn = participants[roomId][nextIndex].userId;
+                // Передаем ход
+                const currentIndex = alivePlayers.findIndex((p) => p.userId === currentTurn);
+                let nextIndex = (currentIndex + 1) % alivePlayers.length;
+                const nextTurn = alivePlayers[nextIndex].userId;
+                rooms[roomId].forEach((client) => {
+                    if (client.readyState === ws.OPEN) {
+                        client.send(JSON.stringify({
+                            type: "update-turn",
+                            currentTurn: nextTurn,
+                            prevTurn: nextTurn,
+                        }));
+                    }
+                });
+            }
+        }
+        if (message.type === "fold-cards") {
+            const { cards, currentTurn, isNoCards } = message;
+            const participant = participants[roomId].find((p) => p.userId === currentTurn);
+            if (participant) {
+                participants[roomId] = participants[roomId].map((participant) => {
+                    if (participant.userId === currentTurn) {
+                        return Object.assign(Object.assign({}, participant), { isNoCards });
+                    }
+                    return participant;
+                });
+                const alivePlayers = participants[roomId].filter((p) => !p.isDead && !p.isNoCards);
+                const currentIndex = alivePlayers.findIndex((p) => p.userId === currentTurn);
+                let nextIndex = (currentIndex + 1) % alivePlayers.length;
+                const nextTurn = alivePlayers[nextIndex].userId;
+                gameStates[roomId] = Object.assign(Object.assign({}, gameStates[roomId]), { prevTurn: currentTurn, currentTurn: nextTurn, tableCards: cards });
                 // Обновляем очередь и уведомляем всех игроков
                 rooms[roomId].forEach((client) => {
                     if (client.readyState === ws.OPEN) {
                         client.send(JSON.stringify({
                             type: "update-turn",
                             currentTurn: nextTurn,
+                            prevTurn: currentTurn,
+                        }));
+                        client.send(JSON.stringify({
+                            type: "update-participant",
+                            userId: participant.userId,
+                            isDead: participant.isDead,
+                            shots: participant.shots,
+                            isNoCards,
+                        }));
+                        client.send(JSON.stringify({
+                            type: "update-table-cards",
+                            cardsCount: cards.length,
                         }));
                     }
                 });
